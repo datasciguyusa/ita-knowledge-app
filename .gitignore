@@ -1,0 +1,13 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# PDFs (large reference docs — store separately)
+*.pdf
+
+# Streamlit
+.streamlit/
