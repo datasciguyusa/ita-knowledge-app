@@ -1,0 +1,7 @@
+# People allowed to use the Tennis Rules app.
+# One email per line (case doesn't matter). Lines starting with # are ignored.
+# Changes take effect the next time someone loads or clicks in the app — no restart needed.
+# Admins (ADMIN_EMAILS in .env) are always allowed and don't need to be listed here.
+# You can also approve people from the app's sidebar (🔐 Manage access).
+#
+# example@gmail.com

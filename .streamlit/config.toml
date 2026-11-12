@@ -1,0 +1,4 @@
+# No [theme] section: the app follows each viewer's light/dark system setting.
+
+[server]
+maxUploadSize = 50

@@ -9,5 +9,18 @@ __pycache__/
 # PDFs (large reference docs — store separately)
 *.pdf
 
-# Streamlit
-.streamlit/
+# Streamlit secrets (API key)
+.streamlit/secrets.toml
+
+# ...except the documents bundled for the web version (python sync_docs.py)
+!docs/
+!docs/**
+
+# Local backups
+*.bak
+
+# Spending database (local)
+*.db
+
+# Local Python environment
+.venv/
