@@ -56,6 +56,12 @@ FRIENDLY_NAMES = {
     "2025-duties-procedures-for-officials.pdf":           "Duties & Procedures for Officials (2025)",
     "wheelchair-tennis-comp-regulations-2026-jan26-v141.pdf": "Wheelchair Tennis Regulations (2026)",
     "wta-2026-rulebook.pdf":                              "WTA Rulebook (2026)",
+    "rules-of-beach-tennis-2026.pdf":                     "Rules of Beach Tennis (2026)",
+    "2026-itf-masters-world-tennis-tour-regulations-final-december-2025.pdf": "ITF Masters Tour Regulations (2026)",
+    "wheelchair-tennis-comp-regs-2025-march-v2.pdf":      "Wheelchair Tennis Regulations (2025)",
+    "WTT Tennis Balls Guidelines.pdf":                    "WTT Tennis Balls Guidelines",
+    "Toilet Break Summary - WT Tours.pdf":                "Toilet Break Summary – WT Tours",
+    "CORRECTING ERRORS - ENGLISH.pdf":                    "Correcting Errors",
 }
 
 
@@ -83,7 +89,8 @@ SYSTEM = (
     "STEP 2 — Use the correct rulebook: Always prioritize the document that specifically "
     "applies to that match type. For example: WTT Juniors questions → use the ITF Juniors "
     "Regulations; WTA match questions → use the WTA Rulebook; wheelchair tennis → use the "
-    "Wheelchair Tennis Regulations. General rules questions → use Rules of Tennis. "
+    "Wheelchair Tennis Regulations; beach tennis → use the Rules of Beach Tennis; "
+    "ITF Masters (seniors) events → use the ITF Masters Tour Regulations. General rules questions → use Rules of Tennis. "
     "Special competition rules (like No-Let) override the general Rules of Tennis when they apply. "
     "Logo, clothing and equipment questions → use the Dress & Equipment cards first, then the regulations. "
     "STEP 3 — Give a direct ruling: State the answer clearly first, then cite the specific "
@@ -128,6 +135,8 @@ def build_index(chunks):
 
 # Question keywords → part of a file name to prioritise. Works for whatever files are in the folder.
 DOC_BOOST = [
+    (["beach tennis", "beach"], "beach"),
+    (["masters", "seniors", "senior tour"], "masters"),
     (["logo", "logos", "shirt", "sleeve", "cap", "headband", "wristband", "leggings", "skirt", "shorts",
       "manufacturer", "commercial", "clothing", "attire", "dress", "tattoo", "bag"], "dress"),
     (["junior", "juniors"], "junior"),
