@@ -82,3 +82,17 @@ except Exception as exc:
         print("   caused by:", type(cause).__name__, "-", cause)
         cause = cause.__cause__ or cause.__context__
         depth += 1
+
+print()
+db = os.getenv("USAGE_DB_URL", "")
+if not db:
+    print("Database: USAGE_DB_URL not set (the app will use a local usage.db file)")
+else:
+    try:
+        from usage import AccessList, UsageStore
+        store = UsageStore(db)
+        AccessList(store)
+        print("Database: SUCCESS — connected and tables ready |", store.engine.dialect.name,
+              "| users with spending this month:", len(store.all_users()))
+    except Exception as exc:
+        print("Database: FAILED —", type(exc).__name__, "-", str(exc)[:300])
