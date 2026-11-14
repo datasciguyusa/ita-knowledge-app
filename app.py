@@ -240,8 +240,19 @@ def extract_chunks(paths_keys: tuple, _transcribe=None) -> dict:
     return result
 
 
+def _folder_signature(folder: str) -> tuple:
+    """Names, sizes and dates of the folder's files: changes whenever a file is added, edited or removed."""
+    out = []
+    for f in Path(folder).rglob("*"):
+        if f.is_file():
+            s = f.stat()
+            out.append((str(f), s.st_size, s.st_mtime))
+    return tuple(sorted(out))
+
+
 @st.cache_data(show_spinner=False)
-def scan(folder: str, _nonce: int = 0) -> dict:
+def scan(folder: str, nonce: int = 0, signature: tuple = ()) -> dict:
+    # nonce and signature have no leading underscore on purpose: Streamlit only rescans when they change.
     found = exam_bank.scan_folder(Path(folder))
     return {k: [str(p) for p in v] for k, v in found.items()}
 
@@ -435,7 +446,7 @@ with st.sidebar:
         st.markdown("---")
 
     # Check the folder for every file each time the page loads.
-    found = scan(str(DOCS_DIR), st.session_state.get("scan_nonce", 0))
+    found = scan(str(DOCS_DIR), st.session_state.get("scan_nonce", 0), _folder_signature(str(DOCS_DIR)))
     ref_files = [Path(p) for p in found["reference"]]
     test_files = [Path(p) for p in found["tests"]]
 
@@ -576,7 +587,7 @@ audio = None
 if gemini_key:
     col_mic, col_text = st.columns([1, 3])
     with col_mic:
-        audio = st.audio_input("🎙️ Speak your question", key="mic")
+        audio = st.audio_input("🎙️ Speak your question", key=f"mic_{st.session_state.get('mic_n', 0)}")
 else:
     col_text = st.container()
 
@@ -592,11 +603,17 @@ with col_text:
 prompt = None
 
 if audio is not None:
-    with st.spinner("Transcribing…"):
-        try:
-            prompt = transcribe_audio(audio.read(), gemini_key)
-        except Exception as e:
-            st.warning(f"Transcription failed: {e}")
+    # The recording stays in the mic box across page refreshes, so only handle each recording once.
+    audio_bytes = audio.getvalue()
+    audio_hash = hashlib.sha1(audio_bytes).hexdigest()
+    if st.session_state.get("last_audio_hash") != audio_hash:
+        st.session_state.last_audio_hash = audio_hash
+        with st.spinner("Transcribing…"):
+            try:
+                prompt = transcribe_audio(audio_bytes, gemini_key)
+            except Exception as e:
+                st.warning(f"Transcription failed: {e}")
+        st.session_state.mic_n = st.session_state.get("mic_n", 0) + 1   # empty mic box next time
 
 if submitted and typed.strip():
     prompt = typed.strip()
