@@ -26,7 +26,7 @@ Or in the terminal, after creating an empty **private** repo on github.com:
 git add -A
 git commit -m "Tennis app: test prep, login, spending limit"
 git remote add origin https://github.com/YOUR-NAME/tennis-knowledge-app.git
-git push -u origin gemini:main
+git push -u origin main
 ```
 Must be private: it contains the ITF documents and exam papers. `.env` is never uploaded.
 
@@ -40,8 +40,6 @@ Must be private: it contains the ITF documents and exam papers. `.env` is never 
    ADMIN_EMAILS = "your@email.com"
    USAGE_DB_URL = "postgresql+psycopg://..."
    MONTHLY_LIMIT_USD = "3"
-   # optional, for the microphone button:
-   # GEMINI_API_KEY = "..."
    ```
 4. **Deploy** (first start takes a few minutes)
 

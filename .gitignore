@@ -28,3 +28,6 @@ __pycache__/
 # Secrets prepared for Streamlit Cloud (never upload)
 streamlit_secrets.toml
 .env.bak
+
+# One-off helper
+push_to_github.bat

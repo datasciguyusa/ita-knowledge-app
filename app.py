@@ -1,13 +1,13 @@
 """
 Tennis Rules Q&A — Streamlit app (Claude Haiku 5.5)
 Run: streamlit run app.py
-API key: console.anthropic.com (ANTHROPIC_API_KEY). Optional GEMINI_API_KEY enables voice questions.
+API key: console.anthropic.com (ANTHROPIC_API_KEY).
 """
 
 import os
 import re
 import math
-import hashlib
+import io
 from pathlib import Path
 from collections import Counter
 
@@ -42,7 +42,6 @@ CHUNK_SIZE = 800
 TOP_K = 8
 MAX_CONTEXT_CHARS = 65_000
 MODEL = "claude-haiku-5-5"            # Claude Haiku 5.5 — keep prompts under 100K tokens (price ×5 above)
-VOICE_MODEL = "gemini-3.6-flash"      # only used for spoken questions, if GEMINI_API_KEY is set
 
 # Optional nicer names; any other file shows its file name.
 FRIENDLY_NAMES = {
@@ -205,19 +204,6 @@ def build_context(chunks: list[dict]) -> str:
         parts.append(f"[{label} — page {c['page']}]\n{c['text']}")
     return "\n\n---\n\n".join(parts)[:MAX_CONTEXT_CHARS]
 
-# ── Voice transcription (optional, Gemini) ────────────────────────────────────
-
-def transcribe_audio(audio_bytes: bytes, gemini_key: str) -> str:
-    """Claude's API doesn't take audio, so spoken questions use Gemini when a key is set."""
-    import base64
-    import google.generativeai as genai
-    genai.configure(api_key=gemini_key)
-    result = genai.GenerativeModel(VOICE_MODEL).generate_content([
-        "Transcribe this audio exactly as spoken. Return only the transcription, nothing else.",
-        {"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(audio_bytes).decode()}},
-    ])
-    return result.text.strip()
-
 # ── Document extraction ───────────────────────────────────────────────────────
 
 @st.cache_data(show_spinner=False)
@@ -260,6 +246,103 @@ def scan(folder: str, nonce: int = 0, signature: tuple = ()) -> dict:
 def _mtime_key(p: Path) -> str:
     s = p.stat()
     return f"{s.st_size}:{s.st_mtime}"
+
+# ── Document reader ───────────────────────────────────────────────────────────
+
+ASK_MODE, TEST_MODE, READ_MODE = "💬 Ask a question", "📝 Test prep", "📖 Read a document"
+VIEW_PAGES = 10            # pages shown at a time (keeps big rulebooks fast on phones)
+
+
+@st.cache_data(show_spinner=False, max_entries=20)
+def pdf_page_count(path: str, stamp: str) -> int:
+    from pypdf import PdfReader
+    return len(PdfReader(path).pages)
+
+
+@st.cache_data(show_spinner=False, max_entries=40)
+def pdf_slice(path: str, stamp: str, start: int, count: int) -> bytes:
+    """Pages start..start+count-1 (1-based) as a small PDF."""
+    from pypdf import PdfReader, PdfWriter
+    reader, writer = PdfReader(path), PdfWriter()
+    for i in range(start - 1, min(start - 1 + count, len(reader.pages))):
+        writer.add_page(reader.pages[i])
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+@st.cache_data(show_spinner=False, max_entries=20)
+def page_texts(path: str, stamp: str) -> list:
+    return exam_bank.document_pages(Path(path))
+
+
+def open_in_reader(source: str, page) -> None:
+    """Button callback: switch to the reader at a document and page."""
+    st.session_state.mode = READ_MODE
+    st.session_state.view_doc = source
+    try:
+        st.session_state.view_page = max(1, int(str(page).lstrip("§")))
+    except ValueError:
+        st.session_state.view_page = 1
+
+
+def _set_page(n: int) -> None:
+    st.session_state.view_page = n
+
+
+def render_reader(files: list[Path]) -> None:
+    st.title("📖 Read a document")
+    names = [f.name for f in files]
+    if st.session_state.get("view_doc") not in names:
+        st.session_state.view_doc = names[0]
+    doc = st.selectbox("Document", names, key="view_doc", format_func=FRIENDLY_NAMES.get,
+                       on_change=_set_page, args=(1,))
+    path = next(f for f in files if f.name == doc)
+    stamp = _mtime_key(path)
+
+    if path.suffix.lower() != ".pdf":                      # Word files: show the text
+        for label, text in page_texts(str(path), stamp):
+            st.markdown(f"**{label}**")
+            st.text(text)
+        return
+
+    n = pdf_page_count(str(path), stamp)
+    st.session_state.view_page = min(max(1, int(st.session_state.get("view_page", 1))), n)
+    start = st.session_state.view_page
+    end = min(start + VIEW_PAGES - 1, n)
+
+    c1, c2, c3, c4 = st.columns([1.2, 1.6, 1.2, 2])
+    c1.button("◀ Back", width="stretch", disabled=start <= 1,
+              on_click=_set_page, args=(max(1, start - VIEW_PAGES),))
+    c2.number_input("Go to page", min_value=1, max_value=n, step=1, key="view_page",
+                    label_visibility="collapsed")
+    c3.button("Next ▶", width="stretch", disabled=end >= n,
+              on_click=_set_page, args=(min(n, start + VIEW_PAGES),))
+    c4.download_button("⬇️ Download full PDF", path.read_bytes(), file_name=path.name,
+                       mime="application/pdf", width="stretch")
+    st.caption(f"Pages {start}–{end} of {n}. Page numbers count from the PDF's first page "
+               "(the numbers answers cite), which can differ from the numbers printed on the pages.")
+
+    term = st.text_input("Find in this document", placeholder="e.g. toilet break, coaching, medical time-out")
+    if term.strip():
+        words = term.lower().split()
+        hits = [label for label, text in page_texts(str(path), stamp)
+                if all(w in (text or "").lower() for w in words)]
+        if hits:
+            st.caption(f"Found on {len(hits)} page(s)" + (" — first 24 shown" if len(hits) > 24 else "") + ":")
+            cols = st.columns(8)
+            for k, label in enumerate(hits[:24]):
+                cols[k % 8].button(f"p. {label}", key=f"hit_{label}", width="stretch",
+                                   on_click=_set_page, args=(int(label),))
+        else:
+            st.caption("No pages contain all of those words.")
+
+    data = pdf_slice(str(path), stamp, start, VIEW_PAGES)
+    try:
+        st.pdf(data, height=900)
+    except Exception:                                      # streamlit-pdf not installed
+        st.info("The in-app viewer needs `streamlit[pdf]` (see requirements.txt). "
+                "Use **Download full PDF** above in the meantime.")
 
 # ── Light / dark toggle ───────────────────────────────────────────────────────
 
@@ -393,7 +476,6 @@ def _setting(name: str) -> str:
 
 
 api_key = _setting("ANTHROPIC_API_KEY")
-gemini_key = _setting("GEMINI_API_KEY")
 MONTHLY_LIMIT_USD = float(_setting("MONTHLY_LIMIT_USD") or 3.0)
 ADMIN_EMAILS = {e.strip().lower() for e in _setting("ADMIN_EMAILS").split(",") if e.strip()}
 USAGE_DB_URL = _setting("USAGE_DB_URL") or f"sqlite:///{(APP_DIR / 'usage.db').as_posix()}"
@@ -430,7 +512,7 @@ if not is_admin and user_email not in file_allowed and not access.is_allowed(use
 
 with st.sidebar:
     st.title("🎾 Tennis Rules Q&A")
-    mode = st.radio("Mode", ["💬 Ask a question", "📝 Test prep"], label_visibility="collapsed")
+    mode = st.radio("Mode", [ASK_MODE, TEST_MODE, READ_MODE], key="mode", label_visibility="collapsed")
     usage_box = st.empty()
     st.markdown("---")
 
@@ -524,8 +606,13 @@ with st.sidebar:
         logout()
     if st.button("🗑️ Clear conversation", width="stretch"):
         st.session_state.messages = []
-        st.session_state.pop("pending_voice", None)
         st.rerun()
+
+if mode == READ_MODE:
+    with test_status_box:
+        st.caption("Open **Test prep** to load the practice tests.")
+    render_reader(ref_files)
+    st.stop()
 
 # ── Guards ────────────────────────────────────────────────────────────────────
 
@@ -557,7 +644,7 @@ for f in selected_files:
 
 # ── Test prep mode ────────────────────────────────────────────────────────────
 
-if mode == "📝 Test prep":
+if mode == TEST_MODE:
     test_prep.render(
         llm=llm, test_files=test_files, cache_dir=CACHE_DIR,
         active_chunks=active_chunks, friendly=FRIENDLY_NAMES, retrieve=retrieve,
@@ -579,46 +666,21 @@ st.caption(
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-for msg in st.session_state.messages:
+for mi, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
+        if msg.get("sources"):
+            with st.expander("📚 Document sections consulted"):
+                for si, (src, page) in enumerate(msg["sources"]):
+                    c1, c2 = st.columns([5, 1])
+                    c1.markdown(f"**{FRIENDLY_NAMES.get(src, src)}** — page {page}")
+                    c2.button("📖 Open", key=f"open_{mi}_{si}", width="stretch",
+                              on_click=open_in_reader, args=(src, page))
 
-audio = None
-if gemini_key:
-    col_mic, col_text = st.columns([1, 3])
-    with col_mic:
-        audio = st.audio_input("🎙️ Speak your question", key=f"mic_{st.session_state.get('mic_n', 0)}")
-else:
-    col_text = st.container()
-
-with col_text:
-    with st.form("q_form", clear_on_submit=True):
-        typed = st.text_input(
-            "question",
-            placeholder="Type your question here…",
-            label_visibility="collapsed",
-        )
-        submitted = st.form_submit_button("Ask ➤", width="stretch")
-
-prompt = None
-
-if audio is not None:
-    # The recording stays in the mic box across page refreshes, so only handle each recording once.
-    audio_bytes = audio.getvalue()
-    audio_hash = hashlib.sha1(audio_bytes).hexdigest()
-    if st.session_state.get("last_audio_hash") != audio_hash:
-        st.session_state.last_audio_hash = audio_hash
-        with st.spinner("Transcribing…"):
-            try:
-                prompt = transcribe_audio(audio_bytes, gemini_key)
-            except Exception as e:
-                st.warning(f"Transcription failed: {e}")
-        st.session_state.mic_n = st.session_state.get("mic_n", 0) + 1   # empty mic box next time
-
-if submitted and typed.strip():
-    prompt = typed.strip()
+prompt = st.chat_input("Ask about a rule or describe a match situation…")
 
 if prompt:
+    prompt = prompt.strip()
     st.session_state.messages.append({"role": "user", "content": prompt})
 
     with st.chat_message("user"):
@@ -628,7 +690,7 @@ if prompt:
         hits = retrieve(prompt, active_chunks)
         context = build_context(hits)
 
-    history = st.session_state.messages[:-1][-18:]
+    history = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[:-1][-18:]]
 
     user_message = f"Document excerpts:\n\n{context}\n\n---\n\nQuestion: {prompt}"
 
@@ -641,20 +703,14 @@ if prompt:
                 placeholder.markdown(full_response + "▌")
             placeholder.markdown(full_response)
         except Exception as exc:
-            from llm import friendly_error
             st.error(friendly_error(exc))
             st.stop()
 
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
-
-    if hits:
-        with st.expander("📚 Document sections consulted", expanded=False):
-            seen: set = set()
-            for c in hits:
-                key = (c["source"], c["page"])
-                if key not in seen:
-                    seen.add(key)
-                    label = FRIENDLY_NAMES.get(c["source"], c["source"])
-                    st.markdown(f"- **{label}** — page {c['page']}")
-
+    sources, seen = [], set()
+    for c in hits:
+        key = (c["source"], c["page"])
+        if key not in seen:
+            seen.add(key)
+            sources.append(key)
+    st.session_state.messages.append({"role": "assistant", "content": full_response, "sources": sources})
     st.rerun()
