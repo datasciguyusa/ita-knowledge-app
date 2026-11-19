@@ -12,7 +12,21 @@ import streamlit as st
 
 import exam_bank
 
-TRACKS = ["General", "Chair Umpire", "Chief Umpire", "Referee"]
+# ITA quizzes: pick a match format, then a role. Past-test questions marked "General" count for both roles.
+TRACKS = ["Chair Umpire", "Roving Umpire", "Referee"]
+DIVISIONS = {
+    "Division I":   "NCAA Division I",
+    "Division II":  "NCAA Division II",
+    "Division III": "NCAA Division III",
+    "NAIA":         "NAIA",
+    "JUCO":         "junior college (JUCO: NJCAA / 3C2A)",
+}
+FORMATS = {
+    "Dual match": "a college dual match (team vs team: the doubles point, singles order and lineups, "
+                  "clinching and play-out, abandonment, coaching from the bench, team conduct)",
+    "Tournament": "a college individual tournament (draws and seeding, sign-in, order of play, rest "
+                  "periods, match formats and scoring, defaults and scheduling)",
+}
 SOURCES = {
     "gen":   "New questions generated from the documents",
     "past":  "Past exam questions",
@@ -23,18 +37,20 @@ CHUNKS_PER_BATCH = 7
 LETTERS = "ABCDEFGH"
 
 TRACK_FOCUS = {
-    "General":      "core Rules of Tennis, scoring, time rules, code of conduct and dress/equipment rules",
-    "Chair Umpire": "on-court chair umpire procedures, announcements, code/time violations, suspensions, warm-ups and ball changes",
-    "Chief Umpire": "chief umpire duties, officiating requirements and staffing, assignments, line umpire placement",
-    "Referee":      "referee/supervisor duties, tournament regulations, draws, entries, sign-in, scheduling and rest periods",
+    "Chair Umpire": "on-court chair umpire procedures: calls and overrules, scoring (including no-ad), lets, "
+                    "time rules, coaching, medical and toilet breaks, warm-up, and the ITA Point Penalty System",
+    "Roving Umpire": "roving umpire procedures: covering several courts, positioning, responding to "
+                     "player appeals, overrules, staying on a court, time and conduct violations under the ITA "
+                     "Point Penalty System, and no-downtime roving",
+    "Referee":      "referee duties: lineups and order of play, starting and suspending play, weather and "
+                    "court changes, defaults, abandonment, conduct reports, eligibility and scheduling",
 }
 # Which documents to draw topics from for each track. Matched against the file name ignoring
 # case, spaces, hyphens and punctuation, so "rules of tennis" matches "Rules of Tennis.pdf" and
 # "2026-rules-of-tennis-english.pdf" alike.
 TRACK_DOCS = {
-    "General":      ["ita rulebook", "rules of tennis", "elc protocol", "friend at court"],
     "Chair Umpire": ["officials manual", "ita rulebook", "elc protocol", "rules of tennis"],
-    "Chief Umpire": ["officials manual", "ita rulebook"],
+    "Roving Umpire": ["officials manual", "ita rulebook"],
     "Referee":      ["ita rulebook", "officials manual"],
 }
 
@@ -207,7 +223,7 @@ class _SeedRotation:
         return out
 
 
-def generate_questions(n, tracks, bank, chunks, llm, friendly, avoid=()) -> list[dict]:
+def generate_questions(n, tracks, bank, chunks, llm, friendly, avoid=(), fmt=None, division=None) -> list[dict]:
     """avoid: question stems already in this quiz or recently seen — the model is told not to
     repeat them, and anything too close to them is dropped."""
     out, attempts = [], 0
@@ -235,6 +251,10 @@ def generate_questions(n, tracks, bank, chunks, llm, friendly, avoid=()) -> list
             f"DOCUMENT EXCERPTS:\n\n{doc_txt}\n\n=====\n\n"
             + _avoid_block(avoid + [q["question"] for q in out]) +
             f"Write exactly {want} new questions for the {track} exam, focused on {TRACK_FOCUS[track]}. "
+            + (f"Set every question in {FORMATS[fmt]}, testing rules that apply to that format. " if fmt else "")
+            + (f"The match is {DIVISIONS[division]}: where the documents give different rules for different "
+               f"divisions (scoring, dual-match format, start times, new balls, etc.), use the {division} rule "
+               "and never one written only for another division. " if division else "") +
             "Use different excerpts for different questions where possible. Return JSON:\n"
             '{"questions":[{"question":str,"options":[str,...],"answer":<0-based index of correct option>,'
             '"explanation":"1-3 sentences on why, quoting or paraphrasing the rule","source":"document name",'
@@ -261,7 +281,7 @@ def generate_questions(n, tracks, bank, chunks, llm, friendly, avoid=()) -> list
                 continue
             out.append({
                 "question": g["question"].strip(), "options": opts, "answer": ans,
-                "section": track, "origin": "generated",
+                "section": track, "format": fmt, "division": division, "origin": "generated",
                 "explanation": g.get("explanation", "").strip(), "citation": cite.strip(", "),
             })
     return out[:n]
@@ -383,7 +403,7 @@ def _test_year(source: str) -> int | None:
     return 2000 + int(m.group(1)) if m else None
 
 
-def _pick_review(pool: list[dict], source: str, tracks: list[str], k: int) -> list[dict]:
+def _pick_review(pool: list[dict], source: str, tracks: list[str], k: int, fmt=None, division=None) -> list[dict]:
     """Questions the user got wrong last time they saw them."""
     if k <= 0:
         return []
@@ -391,7 +411,9 @@ def _pick_review(pool: list[dict], source: str, tracks: list[str], k: int) -> li
     if source != "gen":
         cands += [dict(q, origin="past") for q in pool if prog.needs_review(_qkey(q))]
     if source != "past":
-        cands += [dict(g, origin="generated") for g in prog.missed_generated() if g.get("section") in tracks]
+        cands += [dict(g, origin="generated") for g in prog.missed_generated()
+                  if g.get("section") in tracks and g.get("format") in (fmt, None)
+                  and g.get("division") in (division, None)]
     random.shuffle(cands)
     out, keys = [], set()
     for q in cands:
@@ -401,8 +423,8 @@ def _pick_review(pool: list[dict], source: str, tracks: list[str], k: int) -> li
     return out[:k]
 
 
-def _review_count(pool, source, tracks) -> int:
-    return len(_pick_review(pool, source, tracks, 10_000))
+def _review_count(pool, source, tracks, fmt=None, division=None) -> int:
+    return len(_pick_review(pool, source, tracks, 10_000, fmt, division))
 
 
 def _pick_past(pool: list[dict], k: int) -> list[dict]:
@@ -463,15 +485,17 @@ def _setup_screen(bank, chunks, llm, friendly):
         if not bank:
             source = "gen"
     with c2:
-        tracks = st.multiselect("Exam sections", TRACKS, default=TRACKS,
-                                help="General = on everyone's exam. The others are role-specific sections.")
-        n = st.select_slider("Number of questions", [5, 10, 15, 20, 25], value=10)
+        division = st.radio("Division", list(DIVISIONS), horizontal=True)
+        fmt = st.radio("Match format", list(FORMATS), horizontal=True)
+        role = st.radio("Role", TRACKS, horizontal=True)
+        n = st.select_slider("Number of questions", [5, 10, 15, 20], value=10)
 
+    tracks = [role, "General"]                      # past questions for this role + ones for everyone
     chosen_tests = tests
     if bank and source != "gen":
         chosen_tests = st.multiselect("Past tests to draw from", tests, default=tests)
         pool = [q for q in bank if q["source"] in chosen_tests]
-        counts = {t: sum(q["section"] == t for q in pool) for t in TRACKS}
+        counts = {t: sum(q["section"] == t for q in pool) for t in ["General", *TRACKS]}
         no_key = sum(q["answer"] is None for q in pool)
         prog = _prog()
         unseen = len({_qkey(q) for q in pool if q["section"] in tracks and not prog.seen(_qkey(q))})
@@ -482,7 +506,7 @@ def _setup_screen(bank, chunks, llm, friendly):
                    + (f"  ·  {n_admin} administrative questions excluded" if n_admin else ""))
 
     past_pool = [q for q in bank if q["section"] in tracks and q["source"] in chosen_tests]
-    n_missed = _review_count(past_pool, source, tracks)
+    n_missed = _review_count(past_pool, source, tracks, fmt, division)
     include_review = False
     if n_missed:
         include_review = st.checkbox(
@@ -494,7 +518,7 @@ def _setup_screen(bank, chunks, llm, friendly):
         return
 
     n_review = round(n * REVIEW_SHARE) if include_review else 0
-    quiz = _pick_review(past_pool, source, tracks, n_review)
+    quiz = _pick_review(past_pool, source, tracks, n_review, fmt, division)
     review_keys = {_qkey(q) for q in quiz}
     _prog().mark_seen([_qkey(q) for q in quiz if q["origin"] == "past"])
     past_pool = [q for q in past_pool if _qkey(q) not in review_keys]
@@ -510,7 +534,7 @@ def _setup_screen(bank, chunks, llm, friendly):
             return
         avoid = st.session_state.get("tp_seen_gen", []) + [q["question"] for q in quiz]
         with st.spinner(f"Writing {n_gen} questions from the rulebooks…"):
-            quiz += generate_questions(n_gen, tracks, bank, chunks, llm, friendly, avoid=avoid)
+            quiz += generate_questions(n_gen, [role], bank, chunks, llm, friendly, avoid=avoid, fmt=fmt, division=division)
         _remember_generated(quiz)
     if not quiz:
         st.error("Couldn't build a quiz — try again or choose past exam questions.")
@@ -531,7 +555,8 @@ def _question_screen(llm, retrieve, build_context):
         origin = f"Past exam ({year})" if year else "Past exam"
     else:
         origin = "Generated from rulebooks"
-    st.caption(f"{q['section']} · {origin}" + (" · 🔁 you missed this one before" if q.get("review") else ""))
+    st.caption(f"{q['section']} · " + "".join(f"{q[k]} · " for k in ("division", "format") if q.get(k))
+               + origin + (" · 🔁 you missed this one before" if q.get("review") else ""))
     st.markdown(f"#### {q['question']}")
 
     choice = st.radio("Your answer", list(range(len(q["options"]))), index=None,
@@ -606,6 +631,7 @@ def _record_answer(q: dict, choice: int) -> None:
             "question": q["question"], "options": q.get("options_orig", q["options"]),
             "answer": order[q["answer"]] if order else q["answer"], "section": q["section"],
             "explanation": q.get("explanation", ""), "citation": q.get("citation", ""),
+            "format": q.get("format"), "division": q.get("division"),
         }, ensure_ascii=False)
     _prog().record(_qkey(q), correct, qjson)
 

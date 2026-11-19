@@ -16,7 +16,7 @@ from pypdf import PdfReader
 
 SUPPORTED = {".pdf", ".docx"}
 TEST_NAME = re.compile(r"test|exam|quiz|question", re.I)
-SECTIONS = ["General", "Chair Umpire", "Chief Umpire", "Referee"]
+SECTIONS = ["General", "Chair Umpire", "Roving Umpire", "Referee"]     # ITA: no Chief Umpire section
 
 _P = re.compile(r"<w:p[ >].*?</w:p>", re.S)
 _T = re.compile(r"<w:t[^>]*>([^<]*)</w:t>")
@@ -164,7 +164,7 @@ def _section_name(h: str) -> str:
     low = h.lower()
     if "everyone" in low or "all" in low.split():
         return "General"
-    for role in ("Chair Umpire", "Chief Umpire", "Referee"):
+    for role in ("Chair Umpire", "Roving Umpire", "Referee"):
         if role.lower() in low:
             return role
     return "General"
@@ -210,7 +210,7 @@ EXTRACT_SYSTEM = (
     "If a question has a written answer but no options (open-ended), make it multiple choice: the given "
     "answer plus 2-3 clearly wrong but plausible options, and set \"options_generated\": true. "
     "Skip a question that has neither options nor an answer. "
-    "Section: \"Chair Umpire\" for chair-umpire (CU) tests or sections, \"Chief Umpire\", \"Referee\", "
+    "Section: \"Chair Umpire\" for chair-umpire (CU) tests or sections, \"Roving Umpire\", \"Referee\", "
     "otherwise \"General\" — judge from the file name and headings."
 )
 

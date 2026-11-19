@@ -134,6 +134,17 @@ DOC_BOOST = [
       "point penalty", "coach", "coaching", "lineup", "line-up", "doubles point", "no-ad", "team"], "ita rulebook"),
     (["friend at court", "usta", "the code", "unofficiated", "self-officiat"], "friend at court"),
 ]
+# Documents ticked when the page first opens; users can tick the others in the sidebar.
+# Matched on the file name ignoring case, spaces and punctuation, so a new year's
+# "ITA Rulebook 2027-28.pdf" is picked up without editing this list.
+DEFAULT_DOCS = ["ita rulebook", "ita officials manual"]
+
+
+def is_default_doc(name: str) -> bool:
+    norm = re.sub(r"[^a-z0-9]", "", name.lower())
+    return any(re.sub(r"[^a-z0-9]", "", d) in norm for d in DEFAULT_DOCS)
+
+
 # Words players use → words the rulebooks use, added to the search so either phrasing finds the rule.
 QUERY_SYNONYMS = {
     "deuce": ["no", "ad", "deciding", "point"],
@@ -544,8 +555,8 @@ with st.sidebar:
 
     selected_files: list[Path] = []
     for f in ref_files:
-        label = FRIENDLY_NAMES.get(f.name)
-        if st.checkbox(label, value=True, key=f"cb_{f.name}"):
+        label = FRIENDLY_NAMES.get(f.name, f.stem)
+        if st.checkbox(label, value=is_default_doc(f.name), key=f"cb_{f.name}"):
             selected_files.append(f)
     st.caption(f"{len(selected_files)} / {len(ref_files)} documents selected")
 
