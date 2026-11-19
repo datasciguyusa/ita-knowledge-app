@@ -156,3 +156,67 @@ class AccessList:
     def pending(self) -> list[str]:
         with self.engine.connect() as c:
             return [r[0] for r in c.execute(text("SELECT email FROM access_requests ORDER BY requested_at"))]
+
+
+class QuizHistory:
+    """Per-user Test Prep history: which questions they've seen (so new quizzes show unseen ones
+    first, across visits) and which they last got wrong (so those come back for review).
+    Missed generated questions are stored in full, since they can't be found again otherwise."""
+
+    def __init__(self, store: UsageStore, email: str, table: str = "quiz_history"):
+        # A separate table per app, so apps sharing one database keep separate histories.
+        if not table.replace("_", "").isalnum():
+            raise ValueError(f"bad table name: {table}")
+        self.engine, self.email, self.t = store.engine, email, table
+        with self.engine.begin() as c:
+            c.execute(text(f"""CREATE TABLE IF NOT EXISTS {table} (
+                email VARCHAR(320) NOT NULL, qkey VARCHAR(40) NOT NULL,
+                in_round SMALLINT NOT NULL DEFAULT 0, times_seen INTEGER NOT NULL DEFAULT 0,
+                times_wrong INTEGER NOT NULL DEFAULT 0, last_correct SMALLINT,
+                qjson TEXT, updated VARCHAR(32), PRIMARY KEY (email, qkey))"""))
+
+    @staticmethod
+    def _now() -> str:
+        return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    def load(self) -> dict:
+        """{qkey: {"in_round", "times_seen", "times_wrong", "last_correct", "qjson"}}"""
+        with self.engine.connect() as c:
+            rows = c.execute(text(f"""SELECT qkey, in_round, times_seen, times_wrong, last_correct, qjson
+                                     FROM {self.t} WHERE email=:e"""), {"e": self.email}).mappings().all()
+        return {r["qkey"]: dict(r) for r in rows}
+
+    def mark_seen(self, keys: list[str]) -> None:
+        if not keys:
+            return
+        with self.engine.begin() as c:
+            for k in keys:
+                c.execute(text(f"""INSERT INTO {self.t} (email, qkey, in_round, times_seen, updated)
+                    VALUES (:e, :k, 1, 1, :t)
+                    ON CONFLICT (email, qkey) DO UPDATE SET in_round = 1,
+                      times_seen = {self.t}.times_seen + 1, updated = excluded.updated"""),
+                          {"e": self.email, "k": k, "t": self._now()})
+
+    def end_round(self, keys: list[str]) -> None:
+        """Every question in a pool has been shown: make them all eligible again."""
+        if not keys:
+            return
+        with self.engine.begin() as c:
+            for k in keys:
+                c.execute(text(f"UPDATE {self.t} SET in_round = 0 WHERE email=:e AND qkey=:k"),
+                          {"e": self.email, "k": k})
+
+    def record_answer(self, key: str, correct: bool, qjson: str | None = None) -> None:
+        with self.engine.begin() as c:
+            c.execute(text(f"""INSERT INTO {self.t} (email, qkey, in_round, times_seen, times_wrong,
+                                                        last_correct, qjson, updated)
+                VALUES (:e, :k, 1, 1, :w, :c, :j, :t)
+                ON CONFLICT (email, qkey) DO UPDATE SET
+                  times_wrong = {self.t}.times_wrong + :w, last_correct = :c,
+                  qjson = COALESCE(CAST(:j AS TEXT), {self.t}.qjson), updated = :t"""),
+                      {"e": self.email, "k": key, "w": 0 if correct else 1, "c": 1 if correct else 0,
+                       "j": qjson, "t": self._now()})
+
+    def reset(self) -> None:
+        with self.engine.begin() as c:
+            c.execute(text(f"DELETE FROM {self.t} WHERE email=:e"), {"e": self.email})

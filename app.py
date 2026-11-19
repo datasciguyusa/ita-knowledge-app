@@ -17,7 +17,7 @@ load_dotenv()
 
 import exam_bank
 from llm import LLM, friendly_error
-from usage import AccessList, Budget, UsageStore
+from usage import AccessList, Budget, QuizHistory, UsageStore
 import test_prep
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -480,7 +480,7 @@ def _setting(name: str) -> str:
 
 
 api_key = _setting("ANTHROPIC_API_KEY")
-MONTHLY_LIMIT_USD = float(_setting("MONTHLY_LIMIT_USD") or 3.0)
+MONTHLY_LIMIT_USD = float(_setting("MONTHLY_LIMIT_USD") or 1.0)
 ADMIN_EMAILS = {e.strip().lower() for e in _setting("ADMIN_EMAILS").split(",") if e.strip()}
 USAGE_DB_URL = _setting("USAGE_DB_URL") or f"sqlite:///{(APP_DIR / 'usage.db').as_posix()}"
 APP_TIMEZONE = _setting("APP_TIMEZONE") or "America/Denver"
@@ -646,6 +646,15 @@ active_chunks: list[dict] = []
 for f in selected_files:
     active_chunks.extend(doc_chunks.get(f.name, []))
 
+def quiz_history():
+    """This user's Test Prep history (its own table: the ITF app may share this database),
+    or None if the database can't be reached (quiz still works)."""
+    try:
+        return QuizHistory(store, user_email, table="quiz_history_ita")
+    except Exception:
+        return None
+
+
 # ── Test prep mode ────────────────────────────────────────────────────────────
 
 if mode == TEST_MODE:
@@ -653,6 +662,7 @@ if mode == TEST_MODE:
         llm=llm, test_files=test_files, cache_dir=CACHE_DIR,
         active_chunks=active_chunks, friendly=FRIENDLY_NAMES, retrieve=retrieve,
         build_context=build_context, status_box=test_status_box,
+        history=quiz_history(),
     )
     st.stop()
 else:

@@ -39,7 +39,7 @@ Must be private: it contains the ITF documents and exam papers. `.env` is never 
    # ANTHROPIC_WORKSPACE_ID = "..."   # only if your key starts with sk-ant-usr
    ADMIN_EMAILS = "your@email.com"
    USAGE_DB_URL = "postgresql+psycopg://..."
-   MONTHLY_LIMIT_USD = "3"
+   MONTHLY_LIMIT_USD = "1"
    ```
 4. **Deploy** (first start takes a few minutes)
 
@@ -57,7 +57,7 @@ Edit code or `allowed_emails.txt` → commit → push. If documents changed, run
 (and open Test prep once locally for new tests) before committing. Streamlit redeploys automatically.
 
 ## Spending limit
-Each email gets **$3/month** (change with `MONTHLY_LIMIT_USD`), resetting on the 1st, Mountain time.
+Each email gets **$1/month** (change with `MONTHLY_LIMIT_USD`), resetting on the 1st, Mountain time.
 Admins have no limit and see everyone's spending in the sidebar.
 
 ## Optional: verified Google sign-in
