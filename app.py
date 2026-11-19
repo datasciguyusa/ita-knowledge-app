@@ -688,6 +688,37 @@ else:
     with test_status_box:
         st.caption("Open **Test prep** to load the practice tests.")
 
+# ── Question box ──────────────────────────────────────────────────────────────
+# Until the first question, the box sits right under the heading with example questions below it.
+# After that it's pinned to the bottom of the window, so it stays in reach as answers pile up.
+EXAMPLE_QUESTIONS = [
+    "A serve clips the net and lands in. Can the receiver's partner return it?",
+    "Can a coach talk to a player during a changeover?",
+    "On a no-ad deciding point, who picks the side to receive from?",
+    "A dual match is clinched. What happens to matches still in play?"
+]
+
+
+def _queue_example(q: str) -> None:
+    st.session_state["queued_question"] = q
+
+
+def ask_box() -> str | None:
+    placeholder = "Ask about a rule or describe a match situation…"
+    if st.session_state.messages:
+        return st.chat_input(placeholder, key="ask")
+    with st.container():                       # inside a container the box stays here, not at the bottom
+        typed = st.chat_input(placeholder, key="ask")
+    queued = st.session_state.pop("queued_question", None)
+    if typed or queued:
+        return typed or queued
+    st.caption("Or try an example:")
+    cols = st.columns(2)
+    for i, q in enumerate(EXAMPLE_QUESTIONS):
+        cols[i % 2].button(q, key=f"example_{i}", on_click=_queue_example, args=(q,), width="stretch")
+    return None
+
+
 # ── Chat UI ───────────────────────────────────────────────────────────────────
 
 st.title("🎾 ITA College Tennis Rules Q&A")
@@ -710,7 +741,7 @@ for mi, msg in enumerate(st.session_state.messages):
                     c2.button("📖 Open", key=f"open_{mi}_{si}", width="stretch",
                               on_click=open_in_reader, args=(src, page))
 
-prompt = st.chat_input("Ask about a rule or describe a match situation…")
+prompt = ask_box()
 
 if prompt:
     prompt = prompt.strip()
