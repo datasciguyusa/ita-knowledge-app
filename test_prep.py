@@ -12,7 +12,7 @@ import streamlit as st
 
 import exam_bank
 
-# ITA quizzes: pick a match format, then a role. Past-test questions marked "General" count for both roles.
+# ITA quizzes: tick divisions, match formats and roles. Past-test questions marked "General" count for every role.
 TRACKS = ["Chair Umpire", "Roving Umpire", "Referee"]
 DIVISIONS = {
     "Division I":   "NCAA Division I",
@@ -223,7 +223,7 @@ class _SeedRotation:
         return out
 
 
-def generate_questions(n, tracks, bank, chunks, llm, friendly, avoid=(), fmt=None, division=None) -> list[dict]:
+def generate_questions(n, tracks, bank, chunks, llm, friendly, avoid=(), formats=(), divisions=()) -> list[dict]:
     """avoid: question stems already in this quiz or recently seen — the model is told not to
     repeat them, and anything too close to them is dropped."""
     out, attempts = [], 0
@@ -251,14 +251,11 @@ def generate_questions(n, tracks, bank, chunks, llm, friendly, avoid=(), fmt=Non
             f"DOCUMENT EXCERPTS:\n\n{doc_txt}\n\n=====\n\n"
             + _avoid_block(avoid + [q["question"] for q in out]) +
             f"Write exactly {want} new questions for the {track} exam, focused on {TRACK_FOCUS[track]}. "
-            + (f"Set every question in {FORMATS[fmt]}, testing rules that apply to that format. " if fmt else "")
-            + (f"The match is {DIVISIONS[division]}: where the documents give different rules for different "
-               f"divisions (scoring, dual-match format, start times, new balls, etc.), use the {division} rule "
-               "and never one written only for another division. " if division else "") +
+            + _context_block(formats, divisions) +
             "Use different excerpts for different questions where possible. Return JSON:\n"
             '{"questions":[{"question":str,"options":[str,...],"answer":<0-based index of correct option>,'
             '"explanation":"1-3 sentences on why, quoting or paraphrasing the rule","source":"document name",'
-            '"page":<page number>}]}'
+            '"page":<page number>,"division":str,"format":str}]}'
         )
         try:
             data = llm.ask_json(GEN_SYSTEM, prompt, kind="generate")
@@ -279,12 +276,41 @@ def generate_questions(n, tracks, bank, chunks, llm, friendly, avoid=(), fmt=Non
             stem = g["question"].strip()
             if any(_similar(stem, a, SIMILAR_GEN) for a in avoid + [q["question"] for q in out]):
                 continue
+            fmt = _pick_label(g.get("format"), formats)
+            division = _pick_label(g.get("division"), divisions)
             out.append({
                 "question": g["question"].strip(), "options": opts, "answer": ans,
                 "section": track, "format": fmt, "division": division, "origin": "generated",
                 "explanation": g.get("explanation", "").strip(), "citation": cite.strip(", "),
             })
     return out[:n]
+
+
+def _context_block(formats, divisions) -> str:
+    """Tell the model which divisions / match formats the quiz covers; each question gets one of each."""
+    if not formats and not divisions:
+        return ""
+    parts = []
+    if divisions:
+        parts.append("DIVISIONS: " + "; ".join(f"{d} = {DIVISIONS[d]}" for d in divisions) + ".")
+    if formats:
+        parts.append("MATCH FORMATS: " + "; ".join(f"{f} = {FORMATS[f]}" for f in formats) + ".")
+    return (" ".join(parts) + " Spread the questions across these. Set each question in ONE division and ONE "
+            "match format from these lists, and return their short labels exactly as written before the '=' in "
+            "\"division\" and \"format\". When a rule differs by division or format, name the division or format "
+            "in the question and use the rule for that one, never a rule written only for another division or "
+            "format. ")
+
+
+def _pick_label(value, allowed) -> str | None:
+    """The model's division/format label if it's one of the allowed ones, else a random allowed one."""
+    allowed = list(allowed)
+    if not allowed:
+        return None
+    for a in allowed:
+        if str(value or "").strip().lower() == a.lower():
+            return a
+    return random.choice(allowed)
 
 
 def _avoid_block(stems: list[str]) -> str:
@@ -403,7 +429,7 @@ def _test_year(source: str) -> int | None:
     return 2000 + int(m.group(1)) if m else None
 
 
-def _pick_review(pool: list[dict], source: str, tracks: list[str], k: int, fmt=None, division=None) -> list[dict]:
+def _pick_review(pool: list[dict], source: str, tracks: list[str], k: int, formats=(), divisions=()) -> list[dict]:
     """Questions the user got wrong last time they saw them."""
     if k <= 0:
         return []
@@ -412,8 +438,8 @@ def _pick_review(pool: list[dict], source: str, tracks: list[str], k: int, fmt=N
         cands += [dict(q, origin="past") for q in pool if prog.needs_review(_qkey(q))]
     if source != "past":
         cands += [dict(g, origin="generated") for g in prog.missed_generated()
-                  if g.get("section") in tracks and g.get("format") in (fmt, None)
-                  and g.get("division") in (division, None)]
+                  if g.get("section") in tracks and g.get("format") in (*formats, None)
+                  and g.get("division") in (*divisions, None)]
     random.shuffle(cands)
     out, keys = [], set()
     for q in cands:
@@ -423,8 +449,8 @@ def _pick_review(pool: list[dict], source: str, tracks: list[str], k: int, fmt=N
     return out[:k]
 
 
-def _review_count(pool, source, tracks, fmt=None, division=None) -> int:
-    return len(_pick_review(pool, source, tracks, 10_000, fmt, division))
+def _review_count(pool, source, tracks, formats=(), divisions=()) -> int:
+    return len(_pick_review(pool, source, tracks, 10_000, formats, divisions))
 
 
 def _pick_past(pool: list[dict], k: int) -> list[dict]:
@@ -468,6 +494,26 @@ def _progress_footer():
             st.rerun()
 
 
+def _check_group(label: str, options: list[str], key: str, default_off=()) -> list[str]:
+    """A row of checkboxes with Select all / Unselect all. Choices stay put between quizzes."""
+    keys = {o: f"tpsel_{key}_{_norm(o)}" for o in options}     # not "tp_…", so New quiz keeps them
+    for o, k in keys.items():
+        if k not in st.session_state:
+            st.session_state[k] = o not in default_off
+
+    def set_all(value: bool):
+        for k in keys.values():
+            st.session_state[k] = value
+
+    head = st.columns([4, 1.3, 1.5], vertical_alignment="center")
+    head[0].markdown(f"**{label}**")
+    head[1].button("Select all", key=f"tpsel_{key}_all", on_click=set_all, args=(True,), type="tertiary")
+    head[2].button("Unselect all", key=f"tpsel_{key}_none", on_click=set_all, args=(False,), type="tertiary")
+    for col, o in zip(st.columns(len(options)), options):
+        col.checkbox(o, key=keys[o])
+    return [o for o in options if st.session_state[keys[o]]]
+
+
 def _setup_screen(bank, chunks, llm, friendly):
     n_admin = sum(is_admin(q) for q in bank)
     bank = [q for q in bank if not is_admin(q)]
@@ -485,12 +531,15 @@ def _setup_screen(bank, chunks, llm, friendly):
         if not bank:
             source = "gen"
     with c2:
-        division = st.radio("Division", list(DIVISIONS), horizontal=True)
-        fmt = st.radio("Match format", list(FORMATS), horizontal=True)
-        role = st.radio("Role", TRACKS, horizontal=True)
         n = st.select_slider("Number of questions", [5, 10, 15, 20], value=10)
 
-    tracks = [role, "General"]                      # past questions for this role + ones for everyone
+    divisions = _check_group("Division", list(DIVISIONS), "div")
+    formats = _check_group("Match format", list(FORMATS), "fmt", default_off=("Tournament",))
+    roles = _check_group("Role", TRACKS, "role")
+    missing = [w for w, sel in (("division", divisions), ("match format", formats), ("role", roles)) if not sel]
+    if missing:
+        st.warning("Select at least one " + ", one ".join(missing) + ".")
+    tracks = roles + ["General"] if roles else []   # past questions for these roles + ones for everyone
     chosen_tests = tests
     if bank and source != "gen":
         chosen_tests = st.multiselect("Past tests to draw from", tests, default=tests)
@@ -506,7 +555,7 @@ def _setup_screen(bank, chunks, llm, friendly):
                    + (f"  ·  {n_admin} administrative questions excluded" if n_admin else ""))
 
     past_pool = [q for q in bank if q["section"] in tracks and q["source"] in chosen_tests]
-    n_missed = _review_count(past_pool, source, tracks, fmt, division)
+    n_missed = _review_count(past_pool, source, tracks, formats, divisions)
     include_review = False
     if n_missed:
         include_review = st.checkbox(
@@ -514,11 +563,11 @@ def _setup_screen(bank, chunks, llm, friendly):
             help=f"Up to {round(REVIEW_SHARE * 100)}% of the quiz. A question leaves this list once you answer it correctly.")
     _progress_footer()
 
-    if not st.button("▶️ Start quiz", type="primary", disabled=not tracks):
+    if not st.button("▶️ Start quiz", type="primary", disabled=bool(missing)):
         return
 
     n_review = round(n * REVIEW_SHARE) if include_review else 0
-    quiz = _pick_review(past_pool, source, tracks, n_review, fmt, division)
+    quiz = _pick_review(past_pool, source, tracks, n_review, formats, divisions)
     review_keys = {_qkey(q) for q in quiz}
     _prog().mark_seen([_qkey(q) for q in quiz if q["origin"] == "past"])
     past_pool = [q for q in past_pool if _qkey(q) not in review_keys]
@@ -534,7 +583,8 @@ def _setup_screen(bank, chunks, llm, friendly):
             return
         avoid = st.session_state.get("tp_seen_gen", []) + [q["question"] for q in quiz]
         with st.spinner(f"Writing {n_gen} questions from the rulebooks…"):
-            quiz += generate_questions(n_gen, [role], bank, chunks, llm, friendly, avoid=avoid, fmt=fmt, division=division)
+            quiz += generate_questions(n_gen, roles, bank, chunks, llm, friendly, avoid=avoid,
+                                       formats=formats, divisions=divisions)
         _remember_generated(quiz)
     if not quiz:
         st.error("Couldn't build a quiz — try again or choose past exam questions.")
