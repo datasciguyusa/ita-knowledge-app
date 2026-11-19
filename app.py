@@ -1,5 +1,5 @@
 """
-Tennis Rules Q&A — Streamlit app (Claude Haiku 5.5)
+ITA College Tennis Rules Q&A — Streamlit app (Claude Haiku 5.5)
 Run: streamlit run app.py
 API key: console.anthropic.com (ANTHROPIC_API_KEY).
 """
@@ -27,40 +27,26 @@ CACHE_DIR = APP_DIR / "qa_cache"          # AI results (question bank, transcrip
 
 
 def _docs_dir() -> Path:
-    """DOCS_DIR setting → your USTA folder (on your PC) → ./docs bundled with the app (web)."""
+    """DOCS_DIR setting → ./docs bundled with the app (same on your PC and on the web)."""
     env = os.getenv("DOCS_DIR")
     if env:
         return Path(env)
-    local = Path(r"C:\Users\scott\Documents\__USTA\White Badge Pre-Reqs")
-    if local.is_dir():
-        return local
     return APP_DIR / "docs"
 
 
 DOCS_DIR = _docs_dir()
 CHUNK_SIZE = 800
-TOP_K = 8
+TOP_K = 12
 MAX_CONTEXT_CHARS = 65_000
 MODEL = "claude-haiku-5-5"            # Claude Haiku 5.5 — keep prompts under 100K tokens (price ×5 above)
 
 # Optional nicer names; any other file shows its file name.
 FRIENDLY_NAMES = {
-    "2026-code-of-conduct-for-officials.pdf":             "Code of Conduct – Officials (2026)",
-    "2026-itf-world-tennis-tour-juniors-regulations.pdf": "ITF Juniors Regulations (2026)",
-    "2026-rulebook_27apr26.pdf":                          "ITF Rulebook (Apr 2026)",
-    "2026-rules-of-tennis-english.pdf":                   "Rules of Tennis (2026)",
-    "2026-wtt-regulations men.pdf":                       "WTT Regulations – Men (2026)",
-    "2026-wtt-regulations.pdf":                           "WTT Regulations (2026)",
-    "duties-procedures-for-officials-2026.pdf":           "Duties & Procedures for Officials (2026)",
-    "2025-duties-procedures-for-officials.pdf":           "Duties & Procedures for Officials (2025)",
-    "wheelchair-tennis-comp-regulations-2026-jan26-v141.pdf": "Wheelchair Tennis Regulations (2026)",
-    "wta-2026-rulebook.pdf":                              "WTA Rulebook (2026)",
-    "rules-of-beach-tennis-2026.pdf":                     "Rules of Beach Tennis (2026)",
-    "2026-itf-masters-world-tennis-tour-regulations-final-december-2025.pdf": "ITF Masters Tour Regulations (2026)",
-    "wheelchair-tennis-comp-regs-2025-march-v2.pdf":      "Wheelchair Tennis Regulations (2025)",
-    "WTT Tennis Balls Guidelines.pdf":                    "WTT Tennis Balls Guidelines",
-    "Toilet Break Summary - WT Tours.pdf":                "Toilet Break Summary – WT Tours",
-    "CORRECTING ERRORS - ENGLISH.pdf":                    "Correcting Errors",
+    "Rules of Tennis.pdf":               "ITF Rules of Tennis",
+    "ITA Rulebook 2026-27.pdf":          "ITA Rulebook (2026-27)",
+    "ITA Officials Manual - 2026.pdf":   "ITA Officials Manual (2026)",
+    "Friend at Court 2026.pdf":          "USTA Friend at Court (2026)",
+    "ITA ELC Protocol.pdf":              "ITA Electronic Line Calling Protocol",
 }
 
 
@@ -82,16 +68,21 @@ STOPWORDS = {
 }
 
 SYSTEM = (
-    "You are an experienced ITF-certified tennis rules official and referee. "
-    "STEP 1 — Identify the match context: Before answering, determine the type of match "
-    "or competition described (e.g., WTT Juniors, WTA, wheelchair, standard ITF, etc.). "
-    "STEP 2 — Use the correct rulebook: Always prioritize the document that specifically "
-    "applies to that match type. For example: WTT Juniors questions → use the ITF Juniors "
-    "Regulations; WTA match questions → use the WTA Rulebook; wheelchair tennis → use the "
-    "Wheelchair Tennis Regulations; beach tennis → use the Rules of Beach Tennis; "
-    "ITF Masters (seniors) events → use the ITF Masters Tour Regulations. General rules questions → use Rules of Tennis. "
-    "Special competition rules (like No-Let) override the general Rules of Tennis when they apply. "
-    "Logo, clothing and equipment questions → use the Dress & Equipment cards first, then the regulations. "
+    "You are an experienced college tennis official who knows the ITA (Intercollegiate Tennis "
+    "Association) Rulebook, the ITA Officials Manual, the ITF Rules of Tennis and the USTA Friend at Court. "
+    "STEP 1 — Identify the context: assume a college (ITA) match unless the question says otherwise, "
+    "and note whether it is a dual match, a tournament, singles or doubles. "
+    "STEP 2 — Use the correct document, in this order of authority for college tennis: "
+    "the ITA Rulebook first (college-specific rules such as no-ad scoring, dual-match format, "
+    "clinching, abandonment, coaching, the ITA Point Penalty System, Code violations and default); "
+    "the ITA ELC Protocol for electronic line calling and player challenges; "
+    "then the ITA Officials Manual for officiating procedures; then the ITF Rules of Tennis for "
+    "general playing rules the ITA Rulebook does not change; the USTA Friend at Court only where the "
+    "ITA documents refer to it or are silent. When the ITA Rulebook differs from the Rules of Tennis "
+    "or Friend at Court, the ITA Rulebook governs and you should say so — but only treat a rule as "
+    "overridden when an excerpt explicitly states a different rule for the same situation; never invent "
+    "a conflict. Check the conditions a rule is written for (singles vs doubles, singles sticks, "
+    "officiated vs unofficiated, dual match vs tournament) before applying it to the question. "
     "STEP 3 — Give a direct ruling: State the answer clearly first, then cite the specific "
     "rule, document, and page number. "
     "For True/False: state TRUE or FALSE first. "
@@ -99,7 +90,8 @@ SYSTEM = (
     "For scenarios: state the ruling directly. "
     "When a rule clearly applies by its plain meaning, apply it confidently. "
     "Only say a question is not covered if there is genuinely no relevant rule in the excerpts. "
-    "When a Code Violation is part of the ruling, always specify the exact offense (e.g., Code Violation - Delay of Game, Code Violation - Unsportsmanlike Conduct, etc.)."
+    "When a penalty is part of the ruling, name the exact offense and the penalty under the ITA "
+    "Point Penalty System (e.g., Unsportsmanlike Conduct — point penalty)."
 )
 
 
@@ -134,22 +126,34 @@ def build_index(chunks):
 
 # Question keywords → part of a file name to prioritise. Works for whatever files are in the folder.
 DOC_BOOST = [
-    (["beach tennis", "beach"], "beach"),
-    (["masters", "seniors", "senior tour"], "masters"),
-    (["logo", "logos", "shirt", "sleeve", "cap", "headband", "wristband", "leggings", "skirt", "shorts",
-      "manufacturer", "commercial", "clothing", "attire", "dress", "tattoo", "bag"], "dress"),
-    (["junior", "juniors"], "junior"),
-    (["wta", "women's tour"], "wta"),
-    (["wheelchair", "quad", "standing player"], "wheelchair"),
-    (["atp", "men's tour", "wtt men"], "men"),
-    (["chair umpire", "line umpire", "referee", "supervisor", "official procedure"], "duties"),
-    (["code of conduct", "official conduct", "umpire conduct"], "code-of-conduct"),
+    (["elc", "electronic line", "line calling system", "challenge", "challenges", "hawk-eye", "hawkeye",
+      "review", "replay"], "elc"),
+    (["official", "officials", "chair umpire", "roving umpire", "referee", "procedure", "procedures",
+      "overrule", "line call", "rover"], "officials manual"),
+    (["ita", "college", "collegiate", "ncaa", "dual match", "clinch", "clinched", "abandon",
+      "point penalty", "coach", "coaching", "lineup", "line-up", "doubles point", "no-ad", "team"], "ita rulebook"),
+    (["friend at court", "usta", "the code", "unofficiated", "self-officiat"], "friend at court"),
 ]
+# Words players use → words the rulebooks use, added to the search so either phrasing finds the rule.
+QUERY_SYNONYMS = {
+    "deuce": ["no", "ad", "deciding", "point"],
+    "advantage": ["no", "ad", "deciding"],
+    "netpost": ["net", "post"], "post": ["netpost"],
+    "coach": ["coaching"], "coaching": ["coach"],
+    "tiebreak": ["tie", "break"], "tiebreaker": ["tie", "break"],
+    "default": ["defaulted", "disqualification"],
+    "challenge": ["elc", "electronic"],
+    "bathroom": ["toilet", "restroom"], "toilet": ["restroom"],
+    "injury": ["medical", "timeout"], "medical": ["injury", "timeout"],
+    "late": ["tardiness", "punctuality"],
+}
+
 
 def retrieve(query: str, chunks: list[dict], top_k: int = TOP_K) -> list[dict]:
     if not chunks:
         return []
     query_terms = tokenize(query)
+    query_terms += [x for t in list(query_terms) for x in QUERY_SYNONYMS.get(t, [])]
     query_lower = query.lower()
     sources = {c["source"] for c in chunks}
 
@@ -390,7 +394,7 @@ def login_gate() -> str:
     """Return the signed-in user's email, or show a login screen and stop."""
     if _google_login_configured():                     # verified sign-in (st.login / Google)
         if not st.user.is_logged_in:
-            st.title("🎾 Tennis Rules Q&A")
+            st.title("🎾 ITA Tennis Rules Q&A")
             st.write("Sign in with the Google account for the email address you were invited with.")
             if st.button("Sign in with Google", type="primary"):
                 st.login()
@@ -401,7 +405,7 @@ def login_gate() -> str:
     if email and EMAIL_RE.fullmatch(email):
         st.session_state.user_email = email
         return email
-    st.title("🎾 Tennis Rules Q&A")
+    st.title("🎾 ITA Tennis Rules Q&A")
     with st.form("login"):
         typed = st.text_input("Email address", placeholder="you@example.com")
         if st.form_submit_button("Continue", type="primary"):
@@ -463,7 +467,7 @@ def render_usage(box, budget: Budget) -> None:
 
 # ── Page config ───────────────────────────────────────────────────────────────
 
-st.set_page_config(page_title="Tennis Rules Q&A", page_icon="🎾", layout="wide")
+st.set_page_config(page_title="ITA Tennis Rules Q&A", page_icon="🎾", layout="wide")
 
 def _setting(name: str) -> str:
     val = os.getenv(name, "")
@@ -501,7 +505,7 @@ except Exception as exc:
 file_allowed = read_allowed_file()
 if not is_admin and user_email not in file_allowed and not access.is_allowed(user_email):
     access.request(user_email)
-    st.title("🎾 Tennis Rules Q&A")
+    st.title("🎾 ITA Tennis Rules Q&A")
     st.info(f"**{user_email}** hasn't been approved yet. Your request is waiting for the app owner — "
             "try again after they've let you in.")
     if st.button("Use a different email"):
@@ -511,7 +515,7 @@ if not is_admin and user_email not in file_allowed and not access.is_allowed(use
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.title("🎾 Tennis Rules Q&A")
+    st.title("🎾 ITA Tennis Rules Q&A")
     mode = st.radio("Mode", [ASK_MODE, TEST_MODE, READ_MODE], key="mode", label_visibility="collapsed")
     usage_box = st.empty()
     st.markdown("---")
@@ -657,10 +661,10 @@ else:
 
 # ── Chat UI ───────────────────────────────────────────────────────────────────
 
-st.title("🎾 Tennis Rules & Regulations Q&A")
+st.title("🎾 ITA College Tennis Rules Q&A")
 st.caption(
-    "Ask any question about tennis rules, officiating situations, "
-    "or tournament regulations. Answers are drawn from the selected documents."
+    "Ask any question about college tennis rules, officiating situations, "
+    "or ITA regulations. Answers are drawn from the selected documents."
 )
 
 if "messages" not in st.session_state:

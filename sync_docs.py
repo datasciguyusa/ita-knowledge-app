@@ -7,12 +7,15 @@ import filecmp
 import shutil
 from pathlib import Path
 
-SOURCE = Path(r"C:\Users\scott\Documents\__USTA\White Badge Pre-Reqs")
+SOURCE = None   # ITA app: docs/ is maintained by hand. Set a folder here to sync from it instead.
 TARGET = Path(__file__).parent / "docs"
 TYPES = {".pdf", ".docx"}
 
 
 def main():
+    if SOURCE is None or not Path(SOURCE).is_dir():
+        print("No SOURCE folder set — edit files in docs/ directly. Nothing changed.")
+        return
     TARGET.mkdir(exist_ok=True)
     wanted = {}
     for f in SOURCE.rglob("*"):
