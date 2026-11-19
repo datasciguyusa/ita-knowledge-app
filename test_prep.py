@@ -494,7 +494,7 @@ def _progress_footer():
             st.rerun()
 
 
-def _check_group(label: str, options: list[str], key: str, default_off=()) -> list[str]:
+def _check_group(label: str, options: list[str], key: str, default_off=(), all_buttons=False) -> list[str]:
     """A row of checkboxes with Select all / Unselect all. Choices stay put between quizzes."""
     keys = {o: f"tpsel_{key}_{_norm(o)}" for o in options}     # not "tp_…", so New quiz keeps them
     for o, k in keys.items():
@@ -506,9 +506,10 @@ def _check_group(label: str, options: list[str], key: str, default_off=()) -> li
             st.session_state[k] = value
 
     st.markdown(f"**{label}**")
-    b1, b2 = st.columns(2)
-    b1.button("Select all", key=f"tpsel_{key}_all", on_click=set_all, args=(True,), type="tertiary")
-    b2.button("Unselect all", key=f"tpsel_{key}_none", on_click=set_all, args=(False,), type="tertiary")
+    if all_buttons:
+        b1, b2 = st.columns(2)
+        b1.button("Select all", key=f"tpsel_{key}_all", on_click=set_all, args=(True,), type="tertiary")
+        b2.button("Unselect all", key=f"tpsel_{key}_none", on_click=set_all, args=(False,), type="tertiary")
     for o in options:                                   # stacked: one option per line
         st.checkbox(o, key=keys[o])
     return [o for o in options if st.session_state[keys[o]]]
@@ -535,7 +536,7 @@ def _setup_screen(bank, chunks, llm, friendly):
 
     g1, g2, g3 = st.columns(3)                      # one column per choice
     with g1:
-        divisions = _check_group("Division", list(DIVISIONS), "div")
+        divisions = _check_group("Division", list(DIVISIONS), "div", all_buttons=True)
     with g2:
         formats = _check_group("Match format", list(FORMATS), "fmt", default_off=("Tournament",))
     with g3:
