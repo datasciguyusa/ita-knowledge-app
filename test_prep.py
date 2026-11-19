@@ -505,12 +505,12 @@ def _check_group(label: str, options: list[str], key: str, default_off=()) -> li
         for k in keys.values():
             st.session_state[k] = value
 
-    head = st.columns([4, 1.3, 1.5], vertical_alignment="center")
-    head[0].markdown(f"**{label}**")
-    head[1].button("Select all", key=f"tpsel_{key}_all", on_click=set_all, args=(True,), type="tertiary")
-    head[2].button("Unselect all", key=f"tpsel_{key}_none", on_click=set_all, args=(False,), type="tertiary")
-    for col, o in zip(st.columns(len(options)), options):
-        col.checkbox(o, key=keys[o])
+    st.markdown(f"**{label}**")
+    b1, b2 = st.columns(2)
+    b1.button("Select all", key=f"tpsel_{key}_all", on_click=set_all, args=(True,), type="tertiary")
+    b2.button("Unselect all", key=f"tpsel_{key}_none", on_click=set_all, args=(False,), type="tertiary")
+    for o in options:                                   # stacked: one option per line
+        st.checkbox(o, key=keys[o])
     return [o for o in options if st.session_state[keys[o]]]
 
 
@@ -533,9 +533,13 @@ def _setup_screen(bank, chunks, llm, friendly):
     with c2:
         n = st.select_slider("Number of questions", [5, 10, 15, 20], value=10)
 
-    divisions = _check_group("Division", list(DIVISIONS), "div")
-    formats = _check_group("Match format", list(FORMATS), "fmt", default_off=("Tournament",))
-    roles = _check_group("Role", TRACKS, "role")
+    g1, g2, g3 = st.columns(3)                      # one column per choice
+    with g1:
+        divisions = _check_group("Division", list(DIVISIONS), "div")
+    with g2:
+        formats = _check_group("Match format", list(FORMATS), "fmt", default_off=("Tournament",))
+    with g3:
+        roles = _check_group("Role", TRACKS, "role")
     missing = [w for w, sel in (("division", divisions), ("match format", formats), ("role", roles)) if not sel]
     if missing:
         st.warning("Select at least one " + ", one ".join(missing) + ".")
