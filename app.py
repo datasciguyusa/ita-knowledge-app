@@ -5,6 +5,7 @@ API key: console.anthropic.com (ANTHROPIC_API_KEY).
 """
 
 import os
+import random
 import re
 import math
 import io
@@ -162,7 +163,7 @@ QUERY_SYNONYMS = {
     "tiebreak": ["tie", "break"], "tiebreaker": ["tie", "break"],
     "default": ["defaulted", "disqualification"],
     "challenge": ["elc", "electronic"],
-    "bathroom": ["toilet", "restroom"], "toilet": ["restroom"],
+    "bathroom": ["toilet", "restroom"], "toilet": ["restroom", "bathroom"], "restroom": ["bathroom", "toilet"],
     "injury": ["medical", "timeout"], "medical": ["injury", "timeout"],
     "late": ["tardiness", "punctuality"],
 }
@@ -691,12 +692,34 @@ else:
 # ── Question box ──────────────────────────────────────────────────────────────
 # Until the first question, the box sits right under the heading with example questions below it.
 # After that it's pinned to the bottom of the window, so it stays in reach as answers pile up.
-EXAMPLE_QUESTIONS = [
-    "A serve clips the net and lands in. Can the receiver's partner return it?",
+# A few are picked at random for each visitor; add or edit freely (keep each under ~70 characters).
+EXAMPLE_POOL = [
+    "A serve clips the net and lands in. Can the receiver's partner play it?",
     "Can a coach talk to a player during a changeover?",
     "On a no-ad deciding point, who picks the side to receive from?",
-    "A dual match is clinched. What happens to matches still in play?"
+    "A dual match is clinched. What happens to matches still in play?",
+    "How much time is allowed between points in college tennis?",
+    "A player is late for their match. What's the penalty?",
+    "How long is the warm-up before a dual match?",
+    "What is the penalty sequence under the ITA Point Penalty System?",
+    "Can a player take a bathroom break during a set?",
+    "When should a roving umpire overrule a player's line call?",
+    "A player calls a ball out, then changes the call to good. Ruling?",
+    "Rain stops play during the doubles point. What happens next?",
+    "Who may call foot faults when no official is on the court?",
+    "An opponent keeps stalling before serving. What can the official do?",
+    "How long is a medical time-out in college tennis?",
+    "Can a team change its singles lineup after lineups are exchanged?"
 ]
+EXAMPLES_SHOWN = 4
+
+
+def _shuffle_examples() -> None:
+    """Pick a fresh set of examples, avoiding the ones on screen now when the pool allows."""
+    current = set(st.session_state.get("examples", []))
+    fresh = [q for q in EXAMPLE_POOL if q not in current]
+    pick = fresh if len(fresh) >= EXAMPLES_SHOWN else EXAMPLE_POOL
+    st.session_state.examples = random.sample(pick, min(EXAMPLES_SHOWN, len(pick)))
 
 
 def _queue_example(q: str) -> None:
@@ -712,10 +735,13 @@ def ask_box() -> str | None:
     queued = st.session_state.pop("queued_question", None)
     if typed or queued:
         return typed or queued
+    if "examples" not in st.session_state:
+        _shuffle_examples()
     st.caption("Or try an example:")
     cols = st.columns(2)
-    for i, q in enumerate(EXAMPLE_QUESTIONS):
+    for i, q in enumerate(st.session_state.examples):
         cols[i % 2].button(q, key=f"example_{i}", on_click=_queue_example, args=(q,), width="stretch")
+    st.button("🔀 Show different examples", key="shuffle_examples", on_click=_shuffle_examples, type="tertiary")
     return None
 
 
